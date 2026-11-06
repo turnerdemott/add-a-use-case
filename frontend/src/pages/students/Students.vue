@@ -39,7 +39,7 @@
           <el-tag type="danger" v-else>Disabled</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="Operations" width="120">
+      <el-table-column label="Operations" width="170">
         <template #default="{ row }">
           <el-button
             icon="Edit"
@@ -48,6 +48,16 @@
             type="primary"
             @click.stop="showEditStudentDialog(row)"
           ></el-button>
+          <!-- UC-STU-deactivate-student 3a: not offered for an account that is already deactivated -->
+          <el-button
+            v-if="row.enabled"
+            plain
+            size="small"
+            type="danger"
+            data-cy="deactivate-student"
+            @click.stop="confirmDeactivation(row)"
+            >Deactivate</el-button
+          >
         </template>
       </el-table-column>
       <template #empty>
@@ -77,8 +87,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { searchStudents } from '@/apis/student'
+import { h, onMounted, ref } from 'vue'
+import { deactivateStudent, searchStudents } from '@/apis/student'
 import type {
   SearchStudentByCriteriaResponse,
   Student,
@@ -86,7 +96,7 @@ import type {
 } from '@/apis/student/types'
 import { useSettingsStore } from '@/stores/settings'
 import EditStudentForm from './EditStudentForm.vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const searchCriteria = ref<StudentSearchCriteria>({
   sectionId: NaN,
@@ -161,6 +171,46 @@ function showEditStudentDialog(student: Student) {
 
 function closeDialog() {
   dialogVisible.value = false
+  loadStudents()
+}
+
+/**
+ * UC-STU-deactivate-student, steps 3-6. Step 4's warning names the student, the team she will be removed from (or
+ * that she is on none, 6b), and the effects. Cancel and closing the dialog (5a) reject the confirm, so no request is
+ * sent. A refusal (for example 6a, 409) is already shown by the shared request interceptor; the list is reloaded so
+ * the row shows her current status either way.
+ */
+async function confirmDeactivation(student: Student) {
+  const name = `${student.firstName} ${student.lastName}`
+  const teamLine = student.teamName
+    ? `${name} will be removed from ${student.teamName}. Students on ${student.teamName} may still submit and edit peer evaluations of ${name} for this week and earlier weeks, and the peer evaluation report will show ${name} under ${student.teamName} for those weeks.`
+    : `${name} is not on a team.`
+  try {
+    await ElMessageBox.confirm(
+      h('div', { 'data-cy': 'deactivate-warning' }, [
+        h('p', `Deactivate ${name}?`),
+        h('ul', [
+          h(
+            'li',
+            `${name} will no longer be able to log in. A session already open ends when its session token expires.`
+          ),
+          h('li', teamLine),
+          h('li', `${name}'s weekly activity reports and peer evaluations are kept.`),
+          h('li', `${name} is not emailed. The account can be reactivated later.`)
+        ])
+      ]),
+      'Deactivate a student',
+      { confirmButtonText: 'Deactivate', cancelButtonText: 'Cancel', type: 'warning' }
+    )
+  } catch {
+    return // 5a: cancelled or closed; nothing is sent
+  }
+  try {
+    await deactivateStudent(student.id as number)
+    ElMessage.success(`${name} has been deactivated.`)
+  } catch {
+    // The shared interceptor has already shown the reason
+  }
   loadStudents()
 }
 
