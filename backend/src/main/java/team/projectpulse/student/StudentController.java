@@ -70,6 +70,17 @@ public class StudentController {
         return new Result(true, StatusCode.SUCCESS, "Update student successfully", updatedStudentDto);
     }
 
+    /**
+     * UC-STU-deactivate-student, step 6: deactivates the student after the course admin or instructor confirmed.
+     * Refused with 403 at the route for anyone else (extension *a), and with 409 if she is already deactivated (6a).
+     */
+    @PatchMapping("/{studentId}/deactivate")
+    public Result deactivateStudent(@PathVariable Integer studentId) {
+        Student deactivatedStudent = this.studentService.deactivateStudent(studentId);
+        StudentDto deactivatedStudentDto = this.studentToStudentDtoConverter.convert(deactivatedStudent);
+        return new Result(true, StatusCode.SUCCESS, "Deactivate student successfully", deactivatedStudentDto);
+    }
+
     @DeleteMapping("/{studentId}")
     public Result deleteStudent(@PathVariable Integer studentId) {
         this.studentService.deleteStudent(studentId);
