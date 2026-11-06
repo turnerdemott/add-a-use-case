@@ -1542,10 +1542,12 @@ Details:
 
 **Associated Information:**
 - The course admin or instructor shall be able to cancel the use case at any time prior to submitting it.
+- Team: reactivation does not return the student to the team she was removed from at deactivation (BR-student-lifecycle). She is on no team until a course admin assigns her to one (BR-team-admin-only), and until then she owes no weekly activity report or peer evaluation (BR-submission-owed).
 
 **Related Use Cases:** UC-STU-delete-student: Delete a student; UC-STU-deactivate-student: Deactivate a student
 **Assumptions:**
 **Open Issues:**
+- UC-STU-deactivate-student records one former team and one deactivation week. If a reactivated student is deactivated a second time, what happens to the record of her first deactivation, which decides the weeks she appears in her first team's peer evaluation report?
 
 ## **Instructor**
 
