@@ -47,9 +47,13 @@ public class StudentController {
         return new Result(true, StatusCode.SUCCESS, "Find student successfully", studentDto);
     }
 
+    /**
+     * The team's current members. With {@code week}, also the students deactivated off this team who still count as
+     * its members for that week (BR-student-lifecycle), which the peer evaluation form lists as optional rows.
+     */
     @GetMapping("/teams/{teamId}")
-    public Result findStudentsByTeamId(@PathVariable Integer teamId) {
-        List<Student> students = this.studentService.findStudentsByTeamId(teamId);
+    public Result findStudentsByTeamId(@PathVariable Integer teamId, @RequestParam(required = false) String week) {
+        List<Student> students = this.studentService.findStudentsByTeamId(teamId, week);
         List<StudentDto> studentDtos = students.stream().map(this.studentToStudentDtoConverter::convert).collect(Collectors.toList());
         return new Result(true, StatusCode.SUCCESS, "Find students by team id successfully", studentDtos);
     }

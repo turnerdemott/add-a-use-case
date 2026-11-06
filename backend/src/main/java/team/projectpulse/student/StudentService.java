@@ -85,10 +85,6 @@ public class StudentService {
                 .orElseThrow(() -> new ObjectNotFoundException("student", studentId));
     }
 
-    public List<Student> findStudentsByTeamId(Integer teamId) {
-        return findStudentsByTeamId(teamId, null);
-    }
-
     /**
      * The team's current members and, when a week is given, also the students deactivated off this team who still
      * count as its members for that week: those whose deactivation week is that week or later (BR-student-lifecycle).
