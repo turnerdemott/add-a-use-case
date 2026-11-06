@@ -29,12 +29,18 @@
       v-loading="loading"
       scrollbar-always-on
     >
-      <el-table-column
-        label="Student Name"
-        prop="evaluateeName"
-        min-width="100"
-        fixed
-      ></el-table-column>
+      <el-table-column label="Student Name" prop="evaluateeName" min-width="100" fixed>
+        <template #default="{ row }">
+          <div>{{ row.evaluateeName }}</div>
+          <!-- BR-student-lifecycle: a student deactivated off the team may be evaluated for this week, but is not owed -->
+          <div v-if="formerMemberIds.has(row.evaluateeId)" data-cy="optional-evaluatee">
+            <el-tag type="info" size="small">deactivated, optional</el-tag>
+            <el-checkbox v-model="evaluateFormerMember[row.evaluateeId]" data-cy="evaluate-optional"
+              >Evaluate this student</el-checkbox
+            >
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column v-for="criterion in criteria" :key="criterion.criterionId" min-width="150">
         <template #header>
           <el-tooltip effect="dark" :content="criterion.criterion" placement="top">
@@ -119,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { findStudentsByTeamId } from '@/apis/student'
 import type { Student, FindStudentByTeamIdResponse } from '@/apis/student/types'
 import { findSectionById } from '@/apis/section'
@@ -154,7 +160,19 @@ let isNewSubmission = true // Flag to indicate if this is a new submission or an
 
 const teamId = ref<number>(NaN) // Team ID of the student
 
-const students = ref<Student[]>([]) // Students on the same team
+const students = ref<Student[]>([]) // Students on the same team, plus former members still counted for the week
+
+// Listed students who are not current members of the team: students deactivated off it, listed for a week up to their
+// deactivation (BR-student-lifecycle). Evaluating them is optional, so their rows are submitted only when checked.
+const formerMemberIds = computed(
+  () =>
+    new Set(
+      students.value
+        .filter((student) => student.teamId !== teamId.value)
+        .map((student) => student.id as number)
+    )
+)
+const evaluateFormerMember = ref<Record<number, boolean>>({}) // evaluateeId -> "Evaluate this student" checked
 const sectionId = ref<number>() // Section ID of the team
 const criteria = ref<Criterion[]>([]) // Criteria used for peer evaluations
 const isLoading = ref(false)
@@ -181,7 +199,10 @@ onMounted(async () => {
 // Load activities based on the search criteria
 async function loadStudents() {
   // On the back end, the page number starts from 0, so subtract 1 here
-  const result: FindStudentByTeamIdResponse = await findStudentsByTeamId(teamId.value)
+  const result: FindStudentByTeamIdResponse = await findStudentsByTeamId(
+    teamId.value,
+    previousWeek.value
+  )
   students.value = result.data
 }
 
@@ -228,7 +249,13 @@ async function prepareStartingPeerEvaluations() {
 // Submit peer evaluations
 async function submitPeerEvaluations() {
   if (peerEvalutions.value) {
-    const submitPromises = peerEvalutions.value.map(async (evaluation) => {
+    // A former member's row is sent only if "Evaluate this student" is checked
+    const evaluationsToSubmit = peerEvalutions.value.filter(
+      (evaluation) =>
+        !formerMemberIds.value.has(evaluation.evaluateeId) ||
+        evaluateFormerMember.value[evaluation.evaluateeId]
+    )
+    const submitPromises = evaluationsToSubmit.map(async (evaluation) => {
       const result: SubmitPeerEvaluationResponse = await submitEvaluation(evaluation)
       return result.data
     })

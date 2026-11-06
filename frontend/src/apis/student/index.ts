@@ -26,8 +26,11 @@ export const searchStudents = (params: PaginationParams, searchCriteria: Student
 export const findStudentById = (id: number) =>
   request.get<any, FindStudentByIdResponse>(`${API.STUDENTS_ENDPOINT}/${id}`)
 
-export const findStudentsByTeamId = (teamId: number) =>
-  request.get<any, FindStudentByTeamIdResponse>(`${API.STUDENTS_ENDPOINT}/teams/${teamId}`)
+// With a week, also lists the students deactivated off this team who still count as its members for that week
+export const findStudentsByTeamId = (teamId: number, week?: string) =>
+  request.get<any, FindStudentByTeamIdResponse>(`${API.STUDENTS_ENDPOINT}/teams/${teamId}`, {
+    params: week ? { week } : undefined
+  })
 
 export const createStudent = (newStudent: Student, params: RegistrationParams) =>
   request.post<any, CreateStudentResponse>(API.STUDENTS_ENDPOINT, newStudent, { params })
