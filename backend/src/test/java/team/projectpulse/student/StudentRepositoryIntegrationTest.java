@@ -29,13 +29,13 @@ class StudentRepositoryIntegrationTest extends AbstractIntegrationTest {
     EntityManager entityManager;
 
     @Test
-    void testFindsStudentForInstructorOfHerCourseSection() {
+    void testInstructorOfHerCourseSectionMayLoadHer() {
         assertThat(this.studentRepository.findByIdInLifecycleScopeForUpdate(JOHN, BILL))
                 .hasValueSatisfying(student -> assertThat(student.getId()).isEqualTo(JOHN));
     }
 
     @Test
-    void testFindsStudentForCourseAdminNotAssignedToHerCourseSection() {
+    void testOwnerOfHerCourseNotAssignedToHerCourseSectionMayLoadHer() {
         // Given: Wei owns John's course but no longer instructs his course section
         Section section = this.studentRepository.findById(JOHN).orElseThrow().getSection();
         section.getInstructors().removeIf(instructor -> instructor.getId().equals(WEI));
@@ -48,17 +48,17 @@ class StudentRepositoryIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void testFindsNothingForInstructorOfAnotherCourseSection() {
+    void testInstructorOfAnotherCourseSectionMayNotLoadHer() {
         assertThat(this.studentRepository.findByIdInLifecycleScopeForUpdate(JOHN, TIM)).isEmpty();
     }
 
     @Test
-    void testFindsNothingForStudentHerself() {
+    void testStudentHerselfMayNotLoadHer() {
         assertThat(this.studentRepository.findByIdInLifecycleScopeForUpdate(JOHN, JOHN)).isEmpty();
     }
 
     @Test
-    void testFindsNothingForIdThatNamesNoStudent() {
+    void testIdThatNamesNoStudentLoadsNothing() {
         assertThat(this.studentRepository.findByIdInLifecycleScopeForUpdate(999, BILL)).isEmpty();
     }
 

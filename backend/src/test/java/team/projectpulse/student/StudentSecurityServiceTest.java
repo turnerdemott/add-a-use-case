@@ -47,7 +47,7 @@ class StudentSecurityServiceTest {
     }
 
     @Test
-    void testIsCurrentUserAdminOfStudentCourseForTheCourseAdmin() {
+    void testOwnerOfHerCourseIsHerCourseAdmin() {
         given(this.studentRepository.findById(20)).willReturn(Optional.of(this.jana));
         given(this.userUtils.getUserId()).willReturn(1);
 
@@ -55,7 +55,7 @@ class StudentSecurityServiceTest {
     }
 
     @Test
-    void testIsCurrentUserAdminOfStudentCourseForAnotherUser() {
+    void testAnotherInstructorIsNotHerCourseAdmin() {
         given(this.studentRepository.findById(20)).willReturn(Optional.of(this.jana));
         given(this.userUtils.getUserId()).willReturn(2);
 
@@ -63,7 +63,7 @@ class StudentSecurityServiceTest {
     }
 
     @Test
-    void testIsCurrentUserAdminOfStudentCourseForUnknownStudent() {
+    void testIdThatNamesNoStudentFailsClosed() {
         given(this.studentRepository.findById(999)).willReturn(Optional.empty());
 
         assertThat(this.studentSecurityService.isCurrentUserAdminOfStudentCourse(999)).isFalse();

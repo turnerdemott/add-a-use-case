@@ -200,29 +200,16 @@ class StudentServiceTest {
 
     // UC-STU-deactivate-student
 
-    private Student studentOnTeam(Integer studentId, Team team) {
-        Student student = new Student("jana", "Jana", "Norton", "j.norton@abc.edu", "123456", true, "student");
-        student.setId(studentId);
-        if (team != null) {
-            team.addStudent(student);
-        }
-        return student;
-    }
-
-    private void clockAtDevTime() {
-        // The dev clock's date: Aug 20, 2023 is in 2023-W33
+    @Test
+    void testDeactivatingAStudentRecordsHerTeamAndWeekAndRemovesHerFromIt() {
+        // Given: Jana (id 20) is on Team1; the clock is at the dev date, Aug 20, 2023, which is in 2023-W33
+        Team team1 = new Team("Team1", "Team 1 description", "https://www.team1.com");
+        Student jana = new Student("jana", "Jana", "Norton", "j.norton@abc.edu", "123456", true, "student");
+        jana.setId(20);
+        team1.addStudent(jana);
         Clock fixedClock = Clock.fixed(LocalDate.of(2023, 8, 20).atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
         given(this.clock.instant()).willReturn(fixedClock.instant());
         given(this.clock.getZone()).willReturn(fixedClock.getZone());
-    }
-
-    @Test
-    void testDeactivateStudentSuccess() {
-        // Given
-        Team team = new Team("Team1", "Team 1 description", "https://www.team1.com");
-        team.setTeamId(1);
-        Student jana = studentOnTeam(20, team);
-        clockAtDevTime();
         given(this.userUtils.getUserId()).willReturn(2);
         given(this.studentRepository.findByIdInLifecycleScopeForUpdate(20, 2)).willReturn(Optional.of(jana));
         given(this.studentRepository.save(jana)).willReturn(jana);
@@ -233,17 +220,20 @@ class StudentServiceTest {
         // Then
         assertThat(deactivated.isEnabled()).isFalse();
         assertThat(deactivated.getTeam()).isNull();
-        assertThat(deactivated.getFormerTeam()).isSameAs(team);
+        assertThat(deactivated.getFormerTeam()).isSameAs(team1);
         assertThat(deactivated.getDeactivatedWeek()).isEqualTo("2023-W33");
-        assertThat(team.getStudents()).doesNotContain(jana);
+        assertThat(team1.getStudents()).doesNotContain(jana);
         verify(this.studentRepository, times(1)).save(jana);
     }
 
     @Test
-    void testDeactivateStudentOnNoTeam() {
-        // Given
-        Student jana = studentOnTeam(20, null);
-        clockAtDevTime();
+    void testDeactivatingAStudentOnNoTeamRecordsTheWeekAndNoTeam() {
+        // Given: Jana (id 20) is on no team; the clock is at the dev date, Aug 20, 2023, which is in 2023-W33
+        Student jana = new Student("jana", "Jana", "Norton", "j.norton@abc.edu", "123456", true, "student");
+        jana.setId(20);
+        Clock fixedClock = Clock.fixed(LocalDate.of(2023, 8, 20).atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
+        given(this.clock.instant()).willReturn(fixedClock.instant());
+        given(this.clock.getZone()).willReturn(fixedClock.getZone());
         given(this.userUtils.getUserId()).willReturn(2);
         given(this.studentRepository.findByIdInLifecycleScopeForUpdate(20, 2)).willReturn(Optional.of(jana));
         given(this.studentRepository.save(jana)).willReturn(jana);
@@ -258,12 +248,13 @@ class StudentServiceTest {
     }
 
     @Test
-    void testDeactivateStudentAlreadyDeactivated() {
-        // Given
-        Team team = new Team("Team1", "Team 1 description", "https://www.team1.com");
-        Student jana = studentOnTeam(20, null);
+    void testDeactivatingAnAlreadyDeactivatedStudentIsRefusedAndKeepsHerFirstRecord() {
+        // Given: Jana (id 20) was deactivated off Team1 in 2023-W31
+        Team team1 = new Team("Team1", "Team 1 description", "https://www.team1.com");
+        Student jana = new Student("jana", "Jana", "Norton", "j.norton@abc.edu", "123456", true, "student");
+        jana.setId(20);
         jana.setEnabled(false);
-        jana.setFormerTeam(team);
+        jana.setFormerTeam(team1);
         jana.setDeactivatedWeek("2023-W31");
         given(this.userUtils.getUserId()).willReturn(2);
         given(this.studentRepository.findByIdInLifecycleScopeForUpdate(20, 2)).willReturn(Optional.of(jana));
@@ -274,14 +265,14 @@ class StudentServiceTest {
         // Then
         assertThat(thrown).isInstanceOf(StudentAlreadyDeactivatedException.class)
                 .hasMessage("Jana Norton is already deactivated.");
-        assertThat(jana.getFormerTeam()).isSameAs(team);
+        assertThat(jana.getFormerTeam()).isSameAs(team1);
         assertThat(jana.getDeactivatedWeek()).isEqualTo("2023-W31");
         verify(this.studentRepository, never()).save(any(Student.class));
     }
 
     @Test
-    void testDeactivateStudentNotInCallerScope() {
-        // Given
+    void testDeactivatingAStudentTheScopedFinderDoesNotReturnIsNotFoundAndSavesNothing() {
+        // Given: the finder returns nothing (who it returns is StudentRepositoryIntegrationTest's concern, not this one's)
         given(this.userUtils.getUserId()).willReturn(3);
         given(this.studentRepository.findByIdInLifecycleScopeForUpdate(20, 3)).willReturn(Optional.empty());
 
@@ -294,40 +285,44 @@ class StudentServiceTest {
     }
 
     @Test
-    void testFindStudentsByTeamIdForWeekAddsFormerMembers() {
-        // Given
-        Team team = new Team("Team1", "Team 1 description", "https://www.team1.com");
-        team.setTeamId(1);
-        Student current = studentOnTeam(20, team);
-        Student former = studentOnTeam(21, null);
-        given(this.studentRepository.findByTeamTeamId(1)).willReturn(List.of(current));
-        // A student reactivated onto the same team would come back from both queries
-        given(this.studentRepository.findByFormerTeamTeamIdAndDeactivatedWeekGreaterThanEqual(1, "2023-W32")).willReturn(List.of(former, current));
+    void testTeamListingForAWeekListsEachFormerMemberOnceAfterTheCurrentMembers() {
+        // Given: Jana (20) is on Team1 now; Lucius (21) was deactivated off it. The week filter is the derived query's
+        // job, so it is stubbed here; this test covers merging and de-duplicating the two lists
+        Team team1 = new Team("Team1", "Team 1 description", "https://www.team1.com");
+        Student jana = new Student("jana", "Jana", "Norton", "j.norton@abc.edu", "123456", true, "student");
+        jana.setId(20);
+        team1.addStudent(jana);
+        Student lucius = new Student("lucius", "Lucius", "Osborne", "l.osborne@abc.edu", "123456", false, "student");
+        lucius.setId(21);
+        given(this.studentRepository.findByTeamTeamId(1)).willReturn(List.of(jana));
+        // Jana also comes back from the former-member query, as a student reactivated onto her old team would
+        given(this.studentRepository.findByFormerTeamTeamIdAndDeactivatedWeekGreaterThanEqual(1, "2023-W32")).willReturn(List.of(lucius, jana));
 
         // When
         List<Student> listed = this.studentService.findStudentsByTeamId(1, "2023-W32");
 
         // Then
-        assertThat(listed).containsExactly(current, former);
+        assertThat(listed).containsExactly(jana, lucius);
     }
 
     @Test
-    void testFindStudentsByTeamIdWithoutWeekListsCurrentMembersOnly() {
+    void testTeamListingWithoutAWeekListsCurrentMembersOnly() {
         // Given
-        Team team = new Team("Team1", "Team 1 description", "https://www.team1.com");
-        Student current = studentOnTeam(20, team);
-        given(this.studentRepository.findByTeamTeamId(1)).willReturn(List.of(current));
+        Team team1 = new Team("Team1", "Team 1 description", "https://www.team1.com");
+        Student jana = new Student("jana", "Jana", "Norton", "j.norton@abc.edu", "123456", true, "student");
+        team1.addStudent(jana);
+        given(this.studentRepository.findByTeamTeamId(1)).willReturn(List.of(jana));
 
         // When
         List<Student> listed = this.studentService.findStudentsByTeamId(1, null);
 
         // Then
-        assertThat(listed).containsExactly(current);
+        assertThat(listed).containsExactly(jana);
         verify(this.studentRepository, never()).findByFormerTeamTeamIdAndDeactivatedWeekGreaterThanEqual(any(), any());
     }
 
     @Test
-    void testFindStudentsByTeamIdWithMalformedWeek() {
+    void testTeamListingRefusesAMalformedWeek() {
         // When
         Throwable thrown = catchThrowable(() -> this.studentService.findStudentsByTeamId(1, "week 32"));
 
