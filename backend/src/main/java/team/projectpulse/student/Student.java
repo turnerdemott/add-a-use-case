@@ -66,6 +66,27 @@ public class Student extends PeerEvaluationUser {
         this.formerTeam = formerTeam;
     }
 
+    /**
+     * Whether, for the given week, she still counts as a member of the team she was removed from when she was
+     * deactivated: her former teammates may evaluate her for that week, and the section report lists her
+     * (BR-student-lifecycle). True for the week of her deactivation and every earlier week.
+     */
+    public boolean isFormerMemberInWeek(String week) {
+        return this.formerTeam != null && this.deactivatedWeek != null && week.compareTo(this.deactivatedWeek) <= 0;
+    }
+
+    /**
+     * The team she is reported under for the given week: the team she was removed from, for the week of her
+     * deactivation and earlier weeks, and her current team (possibly none) otherwise. A student later reactivated
+     * and reassigned therefore still shows under her first team for the weeks before.
+     */
+    public Team teamInWeek(String week) {
+        if (this.deactivatedWeek != null && week.compareTo(this.deactivatedWeek) <= 0) {
+            return this.formerTeam;
+        }
+        return this.team;
+    }
+
     public String getDeactivatedWeek() {
         return deactivatedWeek;
     }

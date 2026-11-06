@@ -5,6 +5,8 @@ import team.projectpulse.instructor.Instructor;
 import team.projectpulse.section.Section;
 import team.projectpulse.section.SectionRepository;
 import team.projectpulse.system.UserUtils;
+import team.projectpulse.system.exception.ObjectNotFoundException;
+import team.projectpulse.team.Team;
 import team.projectpulse.user.MyUserPrincipal;
 import team.projectpulse.user.userinvitation.UserInvitationService;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,11 +25,15 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.*;
@@ -45,6 +51,8 @@ class StudentServiceTest {
     PasswordEncoder passwordEncoder;
     @Mock
     UserUtils userUtils;
+    @Mock
+    Clock clock;
 
     @InjectMocks
     private StudentService studentService;
@@ -188,6 +196,143 @@ class StudentServiceTest {
 
         // Then
         verify(this.studentRepository, times(1)).deleteById(1);
+    }
+
+    // UC-STU-deactivate-student
+
+    private Student studentOnTeam(Integer studentId, Team team) {
+        Student student = new Student("jana", "Jana", "Norton", "j.norton@abc.edu", "123456", true, "student");
+        student.setId(studentId);
+        if (team != null) {
+            team.addStudent(student);
+        }
+        return student;
+    }
+
+    private void clockAtDevTime() {
+        // The dev clock's date: Aug 20, 2023 is in 2023-W33
+        Clock fixedClock = Clock.fixed(LocalDate.of(2023, 8, 20).atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
+        given(this.clock.instant()).willReturn(fixedClock.instant());
+        given(this.clock.getZone()).willReturn(fixedClock.getZone());
+    }
+
+    @Test
+    void testDeactivateStudentSuccess() {
+        // Given
+        Team team = new Team("Team1", "Team 1 description", "https://www.team1.com");
+        team.setTeamId(1);
+        Student jana = studentOnTeam(20, team);
+        clockAtDevTime();
+        given(this.userUtils.getUserId()).willReturn(2);
+        given(this.studentRepository.findByIdInLifecycleScopeForUpdate(20, 2)).willReturn(Optional.of(jana));
+        given(this.studentRepository.save(jana)).willReturn(jana);
+
+        // When
+        Student deactivated = this.studentService.deactivateStudent(20);
+
+        // Then
+        assertThat(deactivated.isEnabled()).isFalse();
+        assertThat(deactivated.getTeam()).isNull();
+        assertThat(deactivated.getFormerTeam()).isSameAs(team);
+        assertThat(deactivated.getDeactivatedWeek()).isEqualTo("2023-W33");
+        assertThat(team.getStudents()).doesNotContain(jana);
+        verify(this.studentRepository, times(1)).save(jana);
+    }
+
+    @Test
+    void testDeactivateStudentOnNoTeam() {
+        // Given
+        Student jana = studentOnTeam(20, null);
+        clockAtDevTime();
+        given(this.userUtils.getUserId()).willReturn(2);
+        given(this.studentRepository.findByIdInLifecycleScopeForUpdate(20, 2)).willReturn(Optional.of(jana));
+        given(this.studentRepository.save(jana)).willReturn(jana);
+
+        // When
+        Student deactivated = this.studentService.deactivateStudent(20);
+
+        // Then
+        assertThat(deactivated.isEnabled()).isFalse();
+        assertThat(deactivated.getFormerTeam()).isNull();
+        assertThat(deactivated.getDeactivatedWeek()).isEqualTo("2023-W33");
+    }
+
+    @Test
+    void testDeactivateStudentAlreadyDeactivated() {
+        // Given
+        Team team = new Team("Team1", "Team 1 description", "https://www.team1.com");
+        Student jana = studentOnTeam(20, null);
+        jana.setEnabled(false);
+        jana.setFormerTeam(team);
+        jana.setDeactivatedWeek("2023-W31");
+        given(this.userUtils.getUserId()).willReturn(2);
+        given(this.studentRepository.findByIdInLifecycleScopeForUpdate(20, 2)).willReturn(Optional.of(jana));
+
+        // When
+        Throwable thrown = catchThrowable(() -> this.studentService.deactivateStudent(20));
+
+        // Then
+        assertThat(thrown).isInstanceOf(StudentAlreadyDeactivatedException.class)
+                .hasMessage("Jana Norton is already deactivated.");
+        assertThat(jana.getFormerTeam()).isSameAs(team);
+        assertThat(jana.getDeactivatedWeek()).isEqualTo("2023-W31");
+        verify(this.studentRepository, never()).save(any(Student.class));
+    }
+
+    @Test
+    void testDeactivateStudentNotInCallerScope() {
+        // Given
+        given(this.userUtils.getUserId()).willReturn(3);
+        given(this.studentRepository.findByIdInLifecycleScopeForUpdate(20, 3)).willReturn(Optional.empty());
+
+        // When
+        Throwable thrown = catchThrowable(() -> this.studentService.deactivateStudent(20));
+
+        // Then
+        assertThat(thrown).isInstanceOf(ObjectNotFoundException.class);
+        verify(this.studentRepository, never()).save(any(Student.class));
+    }
+
+    @Test
+    void testFindStudentsByTeamIdForWeekAddsFormerMembers() {
+        // Given
+        Team team = new Team("Team1", "Team 1 description", "https://www.team1.com");
+        team.setTeamId(1);
+        Student current = studentOnTeam(20, team);
+        Student former = studentOnTeam(21, null);
+        given(this.studentRepository.findByTeamTeamId(1)).willReturn(List.of(current));
+        // A student reactivated onto the same team would come back from both queries
+        given(this.studentRepository.findByFormerTeamTeamIdAndDeactivatedWeekGreaterThanEqual(1, "2023-W32")).willReturn(List.of(former, current));
+
+        // When
+        List<Student> listed = this.studentService.findStudentsByTeamId(1, "2023-W32");
+
+        // Then
+        assertThat(listed).containsExactly(current, former);
+    }
+
+    @Test
+    void testFindStudentsByTeamIdWithoutWeekListsCurrentMembersOnly() {
+        // Given
+        Team team = new Team("Team1", "Team 1 description", "https://www.team1.com");
+        Student current = studentOnTeam(20, team);
+        given(this.studentRepository.findByTeamTeamId(1)).willReturn(List.of(current));
+
+        // When
+        List<Student> listed = this.studentService.findStudentsByTeamId(1, null);
+
+        // Then
+        assertThat(listed).containsExactly(current);
+        verify(this.studentRepository, never()).findByFormerTeamTeamIdAndDeactivatedWeekGreaterThanEqual(any(), any());
+    }
+
+    @Test
+    void testFindStudentsByTeamIdWithMalformedWeek() {
+        // When
+        Throwable thrown = catchThrowable(() -> this.studentService.findStudentsByTeamId(1, "week 32"));
+
+        // Then
+        assertThat(thrown).isInstanceOf(IllegalArgumentException.class);
     }
 
 }
