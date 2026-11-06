@@ -1458,10 +1458,12 @@ Details:
 
 **Preconditions:**
 - PRE-1. The course admin or instructor is logged into the system.
-- PRE-2. There exists at least one active student in the system.
+- PRE-2. The account of the student to be deactivated is active.
 
 **Postconditions:**
 - POST-1. The student's account is deactivated.
+- POST-2. The student is no longer on a team; the team she was removed from and the week of her deactivation are recorded.
+- POST-3. Her weekly activity reports, the peer evaluations she wrote, and the peer evaluations written of her are unchanged.
 
 **Main Success Scenario:**
 1. The course admin or instructor indicates to deactivate a student.
@@ -1469,16 +1471,39 @@ Details:
 3. The course admin or instructor chooses to deactivate this student.
 4. The system alerts the course admin or instructor of the consequences of this deactivation defined in the Associated Information of this use case, warns about the deactivation, and asks for confirmation.
 5. The course admin or instructor confirms the deactivation.
-6. The system deactivates the student and alerts the course admin or instructor that this student has been deactivated.
+6. The system deactivates the student according to the "Effects" defined in the Associated Information of this use case and alerts the course admin or instructor that this student has been deactivated.
 7. Use case ends.
 
 **Extensions:**
+- **\*a. The user is neither the course admin who owns the student's course nor an instructor assigned to her course section (BR-student-lifecycle):**
+  - \*a1. The system refuses the request as not permitted and changes nothing.
+  - \*a2. Use case ends.
+- **3a. The student's account is already deactivated:**
+  - 3a1. The system does not offer the deactivate action; the student's details show her account as deactivated.
+  - 3a2. Use case ends.
+- **5a. The course admin or instructor cancels:**
+  - 5a1. The system leaves the student's account, her team membership, and her records unchanged.
+  - 5a2. Use case ends.
+- **6a. The student's account was deactivated after the warning in step 4 was displayed:**
+  - 6a1. The system refuses the deactivation, informs the course admin or instructor that the account is already deactivated, and changes nothing, including the team and week recorded at her first deactivation.
+  - 6a2. Use case ends.
+- **6b. The student is on no team:**
+  - 6b1. The system deactivates her account, records the week of her deactivation, and records no team.
+  - 6b2. The use case continues with the alert in step 6.
+
 **Priority:** Low
 **Frequency of Use:** Rare. Occurs occasionally when a student withdraws from a course section.
-**Business Rules:** BR-student-lifecycle
+**Business Rules:** BR-student-lifecycle (who may deactivate, the removal from her team, and the weeks for which she is still evaluated and reported), BR-team-admin-only (deactivation is its one non-admin removal from a team), BR-section-scoped-access, BR-submission-owed (from her deactivation on she owes nothing and no teammate owes an evaluation of her), BR-evaluation-submission-window.
 
 **Associated Information:**
-- Consequence of the deactivation: The student will no longer be able to log in or submit weekly activity reports and peer evaluations, but the student's account and her previously submitted work are kept in the system. Deactivation will NOT remove the student from the system, and the account can be reactivated in the future (UC-STU-reactivate-student: Reactivate a student). This is distinct from deletion (UC-STU-delete-student: Delete a student), which is a physical, unrecoverable delete. The course admin or instructor shall be able to cancel the use case at any time prior to submitting it.
+- Effects: the system marks the student's account deactivated, records the week of her deactivation (the week containing the moment the course admin or instructor confirms) and the team she is on, and removes her from that team. No other record changes.
+- Access: she can no longer log in. A session she already holds ends no later than the expiry of its session token (FR-SEC-active-account); since she is on no team, she cannot submit a weekly activity report or a peer evaluation in the meantime (BR-team-assignment-required).
+- Peer evaluations of her: the students on the team she was removed from may submit and edit peer evaluations of her for the week of her deactivation and earlier weeks, within their submission window, but are not reminded to; for later weeks the system refuses them (BR-student-lifecycle, BR-submission-owed).
+- Peer evaluation report: her course section's peer evaluation report shows her, under the team she was removed from, for the week of her deactivation and earlier weeks, and not for later weeks (BR-student-lifecycle).
+- Notification: the system sends the student no email about the deactivation.
+- The warning in step 4 names the student, the team she will be removed from, and the effects above.
+- Deactivation does not remove the student from the system, and the account can be reactivated in the future (UC-STU-reactivate-student: Reactivate a student). This is distinct from deletion (UC-STU-delete-student: Delete a student), which is a physical, unrecoverable delete. The course admin or instructor shall be able to cancel the use case at any time prior to confirming it.
+- Honors FR-SEC-active-account.
 
 **Related Use Cases:** UC-STU-delete-student: Delete a student; UC-STU-reactivate-student: Reactivate a student
 **Assumptions:**
