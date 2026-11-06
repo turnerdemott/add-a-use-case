@@ -178,13 +178,13 @@ erDiagram
 
 | Use case, flow | Level | Asserts |
 |---|---|---|
-| UC-STU-deactivate main, assigned instructor | integration | `200`; she is `enabled: false`, on no team, `formerTeam` is her old team, `deactivatedWeek` is `2023-W33`; her old team no longer lists her as a current member; her activities and evaluations are unchanged |
-| UC-STU-deactivate main, owning course admin | integration | The course admin who owns her course but is not assigned to her course section gets `200` |
-| UC-STU-deactivate *a, instructor | integration | An instructor not assigned to her course section gets `403`; she is unchanged |
-| UC-STU-deactivate *a, students and ids | integration | The student herself and a student of another team get `403`; an id that names no student gets `403` |
-| UC-STU-deactivate 6a | integration | Deactivating her again gets `409`; `formerTeam` and `deactivatedWeek` keep their first values |
-| UC-STU-deactivate 6b | integration | A student on no team: `200`, `deactivatedWeek` set, `formerTeam` empty |
-| UC-STU-deactivate access (FR-SEC-active-account) | integration | A new login as her is refused (`401`); a token issued to her before deactivation still authorizes a request (the accepted window) |
+| UC-STU-deactivate-student main, assigned instructor | integration | `200`; she is `enabled: false`, on no team, `formerTeam` is her old team, `deactivatedWeek` is `2023-W33`; her old team no longer lists her as a current member; her activities and evaluations are unchanged |
+| UC-STU-deactivate-student main, owning course admin | integration | The course admin who owns her course but is not assigned to her course section gets `200` |
+| UC-STU-deactivate-student *a, instructor | integration | An instructor not assigned to her course section gets `403`; she is unchanged |
+| UC-STU-deactivate-student *a, students and ids | integration | The student herself and a student of another team get `403`; an id that names no student gets `403` |
+| UC-STU-deactivate-student 6a | integration | Deactivating her again gets `409`; `formerTeam` and `deactivatedWeek` keep their first values |
+| UC-STU-deactivate-student 6b | integration | A student on no team: `200`, `deactivatedWeek` set, `formerTeam` empty |
+| UC-STU-deactivate-student access (FR-SEC-active-account) | integration | A new login as her is refused (`401`); a token issued to her before deactivation still authorizes a request (the accepted window) |
 | Evaluations of her, up to her deactivation week | unit | A former teammate's evaluation of her is accepted for the deactivation week and for an earlier week |
 | Evaluations of her, after her deactivation week | unit | Refused with "must be on the same team" |
 | Editing an evaluation of her | unit | An edit of an evaluation of her within its window is accepted after her deactivation |
@@ -192,7 +192,7 @@ erDiagram
 | Evaluation form list | integration | `GET /students/teams/{teamId}?week=W` includes her for `W <= deactivatedWeek` and not after; without `week` only current members; a malformed `week` gets `400` |
 | BR-submission-owed after deactivation | integration | She owes nothing; a former teammate who evaluated every current member but not her owes nothing |
 | Service logic | unit | `deactivateStudent` sets the record and removes her from her team; an already deactivated student throws `StudentAlreadyDeactivatedException` |
-| UC-STU-deactivate 3a, 4, 5a, 6, 6a UI | E2E (Cypress, API stubbed) | Deactivate is hidden for a deactivated row; the warning names her and her team; Cancel sends no request; Confirm sends one `PATCH` and reloads; a `409` shows its message and reloads the list |
+| UC-STU-deactivate-student 3a, 4, 5a, 6, 6a UI | E2E (Cypress, API stubbed) | Deactivate is hidden for a deactivated row; the warning names her and her team; Cancel sends no request; Confirm sends one `PATCH` and reloads; a `409` shows its message and reloads the list |
 
 ## Open questions / risks
 
