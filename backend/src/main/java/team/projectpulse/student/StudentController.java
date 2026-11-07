@@ -47,9 +47,13 @@ public class StudentController {
         return new Result(true, StatusCode.SUCCESS, "Find student successfully", studentDto);
     }
 
+    /**
+     * The team's current members. With {@code week}, also the students deactivated off this team who still count as
+     * its members for that week (BR-student-lifecycle), which the peer evaluation form lists as optional rows.
+     */
     @GetMapping("/teams/{teamId}")
-    public Result findStudentsByTeamId(@PathVariable Integer teamId) {
-        List<Student> students = this.studentService.findStudentsByTeamId(teamId);
+    public Result findStudentsByTeamId(@PathVariable Integer teamId, @RequestParam(required = false) String week) {
+        List<Student> students = this.studentService.findStudentsByTeamId(teamId, week);
         List<StudentDto> studentDtos = students.stream().map(this.studentToStudentDtoConverter::convert).collect(Collectors.toList());
         return new Result(true, StatusCode.SUCCESS, "Find students by team id successfully", studentDtos);
     }
@@ -68,6 +72,17 @@ public class StudentController {
         Student updatedStudent = this.studentService.updateStudent(studentId, update);
         StudentDto updatedStudentDto = this.studentToStudentDtoConverter.convert(updatedStudent);
         return new Result(true, StatusCode.SUCCESS, "Update student successfully", updatedStudentDto);
+    }
+
+    /**
+     * UC-STU-deactivate-student, step 6: deactivates the student after the course admin or instructor confirmed.
+     * Refused with 403 at the route for anyone else (extension *a), and with 409 if she is already deactivated (6a).
+     */
+    @PatchMapping("/{studentId}/deactivate")
+    public Result deactivateStudent(@PathVariable Integer studentId) {
+        Student deactivatedStudent = this.studentService.deactivateStudent(studentId);
+        StudentDto deactivatedStudentDto = this.studentToStudentDtoConverter.convert(deactivatedStudent);
+        return new Result(true, StatusCode.SUCCESS, "Deactivate student successfully", deactivatedStudentDto);
     }
 
     @DeleteMapping("/{studentId}")

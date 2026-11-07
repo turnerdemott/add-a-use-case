@@ -673,4 +673,190 @@ class EvaluationServiceTest {
         assertThat(peerEvaluations.get(2).getTotalScore()).isCloseTo(49.0, within(0.01));
     }
 
+    // UC-STU-deactivate-student: evaluations of a deactivated student and the reports that show her (BR-student-lifecycle)
+
+    @Test
+    void testFormerTeammateMayEvaluateHerForHerDeactivationWeek() {
+        // Given: 2023-W31 is the week open for submission (Aug 8, 2023 is in W32)
+        Clock fixedClock = Clock.fixed(LocalDate.of(2023, 8, 8).atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
+        given(this.clock.instant()).willReturn(fixedClock.instant());
+        given(this.clock.getZone()).willReturn(fixedClock.getZone());
+        // Given: Eric was deactivated off Team1 in 2023-W31; John is still on Team1
+        Team team1 = this.eric.getTeam();
+        team1.removeStudent(this.eric);
+        this.eric.setFormerTeam(team1);
+        this.eric.setDeactivatedWeek("2023-W31");
+        this.eric.setEnabled(false);
+        PeerEvaluation johnOfEric = new PeerEvaluation("2023-W31", this.john, this.eric, List.of(), "public comment", "private comment");
+        given(this.evaluationRepository.save(johnOfEric)).willReturn(johnOfEric);
+
+        // When
+        PeerEvaluation saved = this.evaluationService.addPeerEvaluation(johnOfEric);
+
+        // Then
+        assertThat(saved).isEqualTo(johnOfEric);
+        verify(this.evaluationRepository, times(1)).save(johnOfEric);
+    }
+
+    @Test
+    void testFormerTeammateMayEvaluateHerForAWeekBeforeHerDeactivation() {
+        // Given: 2023-W31 is the week open for submission (Aug 8, 2023 is in W32)
+        Clock fixedClock = Clock.fixed(LocalDate.of(2023, 8, 8).atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
+        given(this.clock.instant()).willReturn(fixedClock.instant());
+        given(this.clock.getZone()).willReturn(fixedClock.getZone());
+        // Given: Eric was deactivated off Team1 this week, 2023-W32
+        Team team1 = this.eric.getTeam();
+        team1.removeStudent(this.eric);
+        this.eric.setFormerTeam(team1);
+        this.eric.setDeactivatedWeek("2023-W32");
+        this.eric.setEnabled(false);
+        PeerEvaluation johnOfEric = new PeerEvaluation("2023-W31", this.john, this.eric, List.of(), "public comment", "private comment");
+        given(this.evaluationRepository.save(johnOfEric)).willReturn(johnOfEric);
+
+        // When
+        PeerEvaluation saved = this.evaluationService.addPeerEvaluation(johnOfEric);
+
+        // Then
+        assertThat(saved).isEqualTo(johnOfEric);
+    }
+
+    @Test
+    void testFormerTeammateMayNotEvaluateHerForAWeekAfterHerDeactivation() {
+        // Given: 2023-W31 is the week open for submission, so the window check passes and the team check decides
+        Clock fixedClock = Clock.fixed(LocalDate.of(2023, 8, 8).atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
+        given(this.clock.instant()).willReturn(fixedClock.instant());
+        given(this.clock.getZone()).willReturn(fixedClock.getZone());
+        // Given: Eric was deactivated off Team1 in 2023-W30
+        Team team1 = this.eric.getTeam();
+        team1.removeStudent(this.eric);
+        this.eric.setFormerTeam(team1);
+        this.eric.setDeactivatedWeek("2023-W30");
+        this.eric.setEnabled(false);
+        PeerEvaluation johnOfEric = new PeerEvaluation("2023-W31", this.john, this.eric, List.of(), "public comment", "private comment");
+
+        // When
+        Throwable thrown = catchThrowable(() -> this.evaluationService.addPeerEvaluation(johnOfEric));
+
+        // Then
+        assertThat(thrown)
+                .isInstanceOf(PeerEvaluationIllegalArgumentException.class)
+                .hasMessage("The evaluator and evaluatee must be on the same team.");
+    }
+
+    @Test
+    void testStudentOfAnotherTeamMayNotEvaluateADeactivatedStudent() {
+        // Given: 2023-W31 is the week open for submission (Aug 8, 2023 is in W32)
+        Clock fixedClock = Clock.fixed(LocalDate.of(2023, 8, 8).atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
+        given(this.clock.instant()).willReturn(fixedClock.instant());
+        given(this.clock.getZone()).willReturn(fixedClock.getZone());
+        // Given: Eric was deactivated off Team1 in 2023-W31; Woody is on Team2
+        Team team1 = this.eric.getTeam();
+        team1.removeStudent(this.eric);
+        this.eric.setFormerTeam(team1);
+        this.eric.setDeactivatedWeek("2023-W31");
+        this.eric.setEnabled(false);
+        PeerEvaluation woodyOfEric = new PeerEvaluation("2023-W31", this.woody, this.eric, List.of(), "public comment", "private comment");
+
+        // When
+        Throwable thrown = catchThrowable(() -> this.evaluationService.addPeerEvaluation(woodyOfEric));
+
+        // Then
+        assertThat(thrown)
+                .isInstanceOf(PeerEvaluationIllegalArgumentException.class)
+                .hasMessage("The evaluator and evaluatee must be on the same team.");
+    }
+
+    @Test
+    void testEvaluationOfHerStaysEditableAfterHerDeactivation() {
+        // Given: 2023-W31 is the week open for submission (Aug 8, 2023 is in W32)
+        Clock fixedClock = Clock.fixed(LocalDate.of(2023, 8, 8).atStartOfDay(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault());
+        given(this.clock.instant()).willReturn(fixedClock.instant());
+        given(this.clock.getZone()).willReturn(fixedClock.getZone());
+        // Given: John evaluated Eric for 2023-W31, then Eric was deactivated off Team1 in 2023-W32
+        PeerEvaluation johnOfEric = new PeerEvaluation("2023-W31", this.john, this.eric, List.of(), "public comment", "private comment");
+        johnOfEric.setPeerEvaluationId(1);
+        Team team1 = this.eric.getTeam();
+        team1.removeStudent(this.eric);
+        this.eric.setFormerTeam(team1);
+        this.eric.setDeactivatedWeek("2023-W32");
+        this.eric.setEnabled(false);
+        PeerEvaluation update = new PeerEvaluation("2023-W31", this.john, this.eric, List.of(), "new public comment", "new private comment");
+        given(this.evaluationRepository.findById(1)).willReturn(Optional.of(johnOfEric));
+        given(this.evaluationRepository.save(johnOfEric)).willReturn(johnOfEric);
+
+        // When
+        PeerEvaluation updated = this.evaluationService.updatePeerEvaluation(1, update);
+
+        // Then
+        assertThat(updated.getPublicComment()).isEqualTo("new public comment");
+    }
+
+    @Test
+    void testReportNamesHerFormerTeamUpToHerDeactivationWeekAndHerCurrentTeamAfter() {
+        // Given: Eric was deactivated off Team1 in 2023-W32, then put on Team2 (as reactivation and reassignment would)
+        Team team1 = this.eric.getTeam();
+        team1.removeStudent(this.eric);
+        this.eric.setFormerTeam(team1);
+        this.eric.setDeactivatedWeek("2023-W32");
+        Team team2 = this.woody.getTeam();
+        team2.addStudent(this.eric);
+
+        // When
+        PeerEvaluationAverage w31 = this.evaluationService.getPeerEvaluationAverage("2023-W31", this.eric);
+        PeerEvaluationAverage w32 = this.evaluationService.getPeerEvaluationAverage("2023-W32", this.eric);
+        PeerEvaluationAverage w33 = this.evaluationService.getPeerEvaluationAverage("2023-W33", this.eric);
+
+        // Then
+        assertThat(w31.getTeamName()).isEqualTo("Team1");
+        assertThat(w32.getTeamName()).isEqualTo("Team1");
+        assertThat(w33.getTeamName()).isEqualTo("Team2");
+    }
+
+    @Test
+    void testSectionReportListsHerUnderHerFormerTeamUpToHerDeactivationWeekOnly() {
+        // Given: Eric (id 4) was deactivated off Team1 in 2023-W31
+        Team team1 = this.eric.getTeam();
+        team1.removeStudent(this.eric);
+        this.eric.setFormerTeam(team1);
+        this.eric.setDeactivatedWeek("2023-W31");
+        this.eric.setEnabled(false);
+        given(this.sectionRepository.findById(2)).willReturn(Optional.of(this.eric.getSection()));
+        given(this.studentRepository.findBySectionSectionId(2)).willReturn(this.students);
+
+        // When
+        WeeklyPeerEvaluationReport w31 = this.evaluationService.generateWeeklyPeerEvaluationReportForSection(2, "2023-W31");
+        WeeklyPeerEvaluationReport w32 = this.evaluationService.generateWeeklyPeerEvaluationReportForSection(2, "2023-W32");
+
+        // Then
+        assertThat(w31.getPeerEvaluationAverages())
+                .extracting(PeerEvaluationAverage::getStudentId, PeerEvaluationAverage::getTeamName)
+                .contains(tuple(4, "Team1"));
+        assertThat(w32.getPeerEvaluationAverages())
+                .extracting(PeerEvaluationAverage::getStudentId)
+                .doesNotContain(4);
+    }
+
+    @Test
+    void testHerOwnReportStopsAtHerDeactivationWeek() {
+        // Given: Eric (id 4) was deactivated off Team1 in 2023-W32; an instructor asks for W31 through W34
+        Team team1 = this.eric.getTeam();
+        team1.removeStudent(this.eric);
+        this.eric.setFormerTeam(team1);
+        this.eric.setDeactivatedWeek("2023-W32");
+        this.eric.setEnabled(false);
+        given(this.studentRepository.findById(4)).willReturn(Optional.of(this.eric));
+        Instructor instructor = new Instructor();
+        instructor.setRoles("instructor");
+        MyUserPrincipal myUserPrincipal = new MyUserPrincipal(instructor);
+        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
+        securityContext.setAuthentication(new UsernamePasswordAuthenticationToken(myUserPrincipal, null, myUserPrincipal.getAuthorities()));
+        SecurityContextHolder.setContext(securityContext);
+
+        // When
+        List<PeerEvaluationAverage> rows = this.evaluationService.generateEvaluationSummariesForStudent(4, "2023-W31", "2023-W34");
+
+        // Then
+        assertThat(rows).extracting(PeerEvaluationAverage::getWeek).containsExactly("2023-W31", "2023-W32");
+    }
+
 }

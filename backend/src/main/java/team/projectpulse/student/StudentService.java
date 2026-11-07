@@ -3,6 +3,8 @@ package team.projectpulse.student;
 import team.projectpulse.section.Section;
 import team.projectpulse.section.SectionRepository;
 import team.projectpulse.system.UserUtils;
+import team.projectpulse.system.WeekKeys;
+import team.projectpulse.team.Team;
 import team.projectpulse.system.exception.ObjectNotFoundException;
 import team.projectpulse.user.userinvitation.UserInvitationService;
 import jakarta.transaction.Transactional;
@@ -15,8 +17,13 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.Clock;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -27,14 +34,16 @@ public class StudentService {
     private final UserInvitationService userInvitationService;
     private final PasswordEncoder passwordEncoder;
     private final UserUtils userUtils;
+    private final Clock clock;
 
 
-    public StudentService(StudentRepository studentRepository, SectionRepository sectionRepository, UserInvitationService userInvitationService, PasswordEncoder passwordEncoder, UserUtils userUtils) {
+    public StudentService(StudentRepository studentRepository, SectionRepository sectionRepository, UserInvitationService userInvitationService, PasswordEncoder passwordEncoder, UserUtils userUtils, Clock clock) {
         this.studentRepository = studentRepository;
         this.sectionRepository = sectionRepository;
         this.userInvitationService = userInvitationService;
         this.passwordEncoder = passwordEncoder;
         this.userUtils = userUtils;
+        this.clock = clock;
     }
 
     public Page<Student> findByCriteria(Map<String, String> searchCriteria, Pageable pageable) {
@@ -76,8 +85,26 @@ public class StudentService {
                 .orElseThrow(() -> new ObjectNotFoundException("student", studentId));
     }
 
-    public List<Student> findStudentsByTeamId(Integer teamId) {
-        return this.studentRepository.findByTeamTeamId(teamId);
+    /**
+     * The team's current members and, when a week is given, also the students deactivated off this team who still
+     * count as its members for that week: those whose deactivation week is that week or later (BR-student-lifecycle).
+     * The peer evaluation form lists these so former teammates may evaluate them for that week.
+     *
+     * @param week a week key such as {@code "2023-W32"}, or null for the current members only
+     * @throws IllegalArgumentException if the week is not a well-formed week key
+     */
+    public List<Student> findStudentsByTeamId(Integer teamId, String week) {
+        List<Student> members = this.studentRepository.findByTeamTeamId(teamId);
+        if (week == null) {
+            return members;
+        }
+        WeekKeys.requireValid(week);
+        Set<Integer> memberIds = members.stream().map(Student::getId).collect(Collectors.toSet());
+        List<Student> students = new ArrayList<>(members);
+        this.studentRepository.findByFormerTeamTeamIdAndDeactivatedWeekGreaterThanEqual(teamId, week).stream()
+                .filter(formerMember -> !memberIds.contains(formerMember.getId())) // Reactivated onto the same team
+                .forEach(students::add);
+        return students;
     }
 
     public Student saveStudent(Student newStudent, Integer courseId, Integer sectionId, String registrationToken, String role) {
@@ -123,6 +150,37 @@ public class StudentService {
         }
 
         return this.studentRepository.save(oldStudent);
+    }
+
+    /**
+     * Deactivates a student (UC-STU-deactivate-student): disables her account, records the team she is on and the
+     * week of her deactivation, and removes her from that team. Her other records are unchanged.
+     *
+     * <p>She is loaded only if the caller is an instructor of her course section or the course admin who owns her
+     * course, and locked for write, so a concurrent second deactivation waits and then finds her already
+     * deactivated.
+     *
+     * @throws ObjectNotFoundException             if she is not in the caller's scope (the route rule refuses that
+     *                                             first, so this is reached only if she was deleted meanwhile)
+     * @throws StudentAlreadyDeactivatedException if her account is already deactivated (extension 6a)
+     */
+    public Student deactivateStudent(Integer studentId) {
+        Student student = this.studentRepository.findByIdInLifecycleScopeForUpdate(studentId, this.userUtils.getUserId())
+                .orElseThrow(() -> new ObjectNotFoundException("student", studentId));
+
+        // Tests enabled, not deactivatedWeek, so an account disabled through the generic edit (OI-65) is refused too
+        if (!student.isEnabled()) {
+            throw new StudentAlreadyDeactivatedException(student);
+        }
+
+        Team team = student.getTeam(); // Null when she is on no team (extension 6b): no team is recorded
+        student.setFormerTeam(team);
+        student.setDeactivatedWeek(WeekKeys.of(LocalDate.now(this.clock)));
+        if (team != null) {
+            team.removeStudent(student);
+        }
+        student.setEnabled(false);
+        return this.studentRepository.save(student);
     }
 
     public void deleteStudent(Integer studentId) {

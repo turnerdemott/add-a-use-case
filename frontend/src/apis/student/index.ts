@@ -9,7 +9,8 @@ import type {
   UpdateStudentResponse,
   Student,
   RegistrationParams,
-  FindStudentByTeamIdResponse
+  FindStudentByTeamIdResponse,
+  DeactivateStudentResponse
 } from './types'
 
 enum API {
@@ -25,8 +26,11 @@ export const searchStudents = (params: PaginationParams, searchCriteria: Student
 export const findStudentById = (id: number) =>
   request.get<any, FindStudentByIdResponse>(`${API.STUDENTS_ENDPOINT}/${id}`)
 
-export const findStudentsByTeamId = (teamId: number) =>
-  request.get<any, FindStudentByTeamIdResponse>(`${API.STUDENTS_ENDPOINT}/teams/${teamId}`)
+// With a week, also lists the students deactivated off this team who still count as its members for that week
+export const findStudentsByTeamId = (teamId: number, week?: string) =>
+  request.get<any, FindStudentByTeamIdResponse>(`${API.STUDENTS_ENDPOINT}/teams/${teamId}`, {
+    params: week ? { week } : undefined
+  })
 
 export const createStudent = (newStudent: Student, params: RegistrationParams) =>
   request.post<any, CreateStudentResponse>(API.STUDENTS_ENDPOINT, newStudent, { params })
@@ -39,3 +43,7 @@ export const updateStudent = (updatedStudent: Student) =>
 
 export const deleteStudent = (id: number) =>
   request.delete<any, DeleteStudentResponse>(`${API.STUDENTS_ENDPOINT}/${id}`)
+
+// UC-STU-deactivate-student: disables her account and removes her from her team
+export const deactivateStudent = (id: number) =>
+  request.patch<any, DeactivateStudentResponse>(`${API.STUDENTS_ENDPOINT}/${id}/deactivate`)

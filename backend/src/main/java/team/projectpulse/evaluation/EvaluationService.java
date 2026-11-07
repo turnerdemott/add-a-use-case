@@ -61,9 +61,15 @@ public class EvaluationService {
 
         // Make sure the evaluator and evaluatee are on the same team. Compare team ids: Team does not override
         // equals, so comparing the entities is identity comparison and only happens to hold within one session.
+        // A student deactivated off the evaluator's team still counts as a member of it for the week of her
+        // deactivation and earlier weeks, so her former teammates may evaluate her for those (BR-student-lifecycle).
         Integer evaluatorTeamId = evaluatorTeam.getTeamId();
-        Team evaluateeTeam = newPeerEvaluation.getEvaluatee().getTeam();
-        if (evaluatorTeamId == null || evaluateeTeam == null || !evaluatorTeamId.equals(evaluateeTeam.getTeamId())) {
+        Student evaluatee = newPeerEvaluation.getEvaluatee();
+        Team evaluateeTeam = evaluatee.getTeam();
+        boolean onSameTeam = evaluateeTeam != null && evaluatorTeamId != null && evaluatorTeamId.equals(evaluateeTeam.getTeamId());
+        boolean formerTeammate = evaluatee.isFormerMemberInWeek(newPeerEvaluation.getWeek())
+                && evaluatorTeamId != null && evaluatorTeamId.equals(evaluatee.getFormerTeam().getTeamId());
+        if (!onSameTeam && !formerTeammate) {
             throw new PeerEvaluationIllegalArgumentException("The evaluator and evaluatee must be on the same team.");
         }
 
@@ -183,8 +189,9 @@ public class EvaluationService {
         // her. Dereferencing it here was a 500 on her own results page and on the instructor's performance dashboard
         // for her. Absent team does not mean absent evaluations, so do not shortcut the rest of this method: a
         // student removed from a team (Team.removeStudent nulls the back-reference) keeps every evaluation her
-        // teammates wrote of her while she was on it, and this report is where she reads them.
-        Team team = student.getTeam();
+        // teammates wrote of her while she was on it, and this report is where she reads them. A deactivated student
+        // is named under the team she was removed from for the week of her deactivation and earlier weeks.
+        Team team = student.teamInWeek(week);
         peerEvaluationAverage.setTeamName(team == null ? null : team.getTeamName());
 
         // 1. Convert the evaluations list to a stream; 2. Map each evaluation object to its total score (resulting in a DoubleStream); 3. Compute the average of the total scores.
@@ -220,8 +227,11 @@ public class EvaluationService {
 
         report.setSectionName(this.sectionRepository.findById(sectionId).orElseThrow(() -> new ObjectNotFoundException("section", sectionId)).getSectionName());
 
-        // Get all students in the section
-        List<Student> students = this.studentRepository.findBySectionSectionId(sectionId).stream().filter(student -> student.getTeam() != null).collect(Collectors.toList());
+        // Get the students in the section who are on a team, plus those deactivated off a team who still count as its
+        // members for this week (BR-student-lifecycle)
+        List<Student> students = this.studentRepository.findBySectionSectionId(sectionId).stream()
+                .filter(student -> student.getTeam() != null || student.isFormerMemberInWeek(week))
+                .collect(Collectors.toList());
 
         // For each student, compute her average total score, collect all public comments and private comments, and compute rating averages for each criterion.
         students.forEach(student -> {
@@ -248,6 +258,12 @@ public class EvaluationService {
         Student student = this.studentRepository.findById(studentId).orElseThrow(() -> new ObjectNotFoundException("student", studentId));
 
         List<String> weeks = getWeeksBetween(startWeek, endWeek);
+
+        // A deactivated student appears in no peer evaluation report after the week of her deactivation
+        // (BR-student-lifecycle), so her own report stops there too
+        if (!student.isEnabled() && student.getDeactivatedWeek() != null) {
+            weeks = weeks.stream().filter(student::isOnOrBeforeDeactivation).collect(Collectors.toList());
+        }
 
         List<PeerEvaluationAverage> peerEvaluationAverages = weeks.stream().map(week -> getPeerEvaluationAverage(week, student)).collect(Collectors.toList());
 

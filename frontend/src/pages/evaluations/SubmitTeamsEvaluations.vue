@@ -29,12 +29,22 @@
       v-loading="loading"
       scrollbar-always-on
     >
-      <el-table-column
-        label="Student Name"
-        prop="evaluateeName"
-        min-width="100"
-        fixed
-      ></el-table-column>
+      <el-table-column label="Student Name" prop="evaluateeName" min-width="100" fixed>
+        <template #default="{ row }">
+          <div>{{ row.evaluateeName }}</div>
+          <!-- BR-student-lifecycle: a student deactivated off the team may be evaluated for this week, but is not owed -->
+          <div v-if="formerMemberIds.has(row.evaluateeId)" data-cy="optional-evaluatee">
+            <el-tag type="info" size="small">deactivated, optional</el-tag>
+            <!-- Only an unsaved row can be skipped; a saved evaluation of her is updated like any other -->
+            <el-checkbox
+              v-if="row.evaluationId == null"
+              v-model="evaluateFormerMember[row.evaluateeId]"
+              data-cy="evaluate-optional"
+              >Evaluate this student</el-checkbox
+            >
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column v-for="criterion in criteria" :key="criterion.criterionId" min-width="150">
         <template #header>
           <el-tooltip effect="dark" :content="criterion.criterion" placement="top">
@@ -119,7 +129,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { findStudentsByTeamId } from '@/apis/student'
 import type { Student, FindStudentByTeamIdResponse } from '@/apis/student/types'
 import { findSectionById } from '@/apis/section'
@@ -154,7 +164,19 @@ let isNewSubmission = true // Flag to indicate if this is a new submission or an
 
 const teamId = ref<number>(NaN) // Team ID of the student
 
-const students = ref<Student[]>([]) // Students on the same team
+const students = ref<Student[]>([]) // Students on the same team, plus former members still counted for the week
+
+// Listed students who are not current members of the team: students deactivated off it, listed for a week up to their
+// deactivation (BR-student-lifecycle). Evaluating them is optional, so their rows are submitted only when checked.
+const formerMemberIds = computed(
+  () =>
+    new Set(
+      students.value
+        .filter((student) => student.teamId !== teamId.value)
+        .map((student) => student.id as number)
+    )
+)
+const evaluateFormerMember = ref<Record<number, boolean>>({}) // evaluateeId -> "Evaluate this student" checked
 const sectionId = ref<number>() // Section ID of the team
 const criteria = ref<Criterion[]>([]) // Criteria used for peer evaluations
 const isLoading = ref(false)
@@ -181,7 +203,10 @@ onMounted(async () => {
 // Load activities based on the search criteria
 async function loadStudents() {
   // On the back end, the page number starts from 0, so subtract 1 here
-  const result: FindStudentByTeamIdResponse = await findStudentsByTeamId(teamId.value)
+  const result: FindStudentByTeamIdResponse = await findStudentsByTeamId(
+    teamId.value,
+    previousWeek.value
+  )
   students.value = result.data
 }
 
@@ -202,38 +227,62 @@ async function prepareStartingPeerEvaluations() {
     previousWeek.value
   )
 
-  // If the student has already submitted evaluations for the current week, load them
+  // If the student has already submitted evaluations for the current week, load them, plus an unsaved row for each
+  // former member she has not evaluated yet, so she may still evaluate them (BR-student-lifecycle)
   if (result.data.length > 0) {
-    peerEvalutions.value = result.data
+    const evaluatedIds = new Set(result.data.map((evaluation) => evaluation.evaluateeId))
+    const unevaluatedFormerMembers = students.value.filter(
+      (student) =>
+        formerMemberIds.value.has(student.id as number) && !evaluatedIds.has(student.id as number)
+    )
+    peerEvalutions.value = [...result.data, ...unevaluatedFormerMembers.map(startingEvaluation)]
     isNewSubmission = false
   } else {
     // If not, create a new set of evaluations
     isNewSubmission = true
-    peerEvalutions.value = students.value.map((student) => ({
-      week: previousWeek.value,
-      evaluatorId: (userInfoStore.userInfo as Student).id as number,
-      evaluateeId: student.id as number,
-      evaluateeName: `${student.firstName} ${student.lastName}`,
-      ratings: criteria.value.map((criterion) => ({
-        criterionId: criterion.criterionId as number,
-        criterion: criterion.criterion,
-        actualScore: 10 // Default score, can be changed by the user
-      })),
-      publicComment: '',
-      privateComment: ''
-    }))
+    peerEvalutions.value = students.value.map(startingEvaluation)
   }
+}
+
+// A new, unsaved evaluation of a listed student with the default scores
+function startingEvaluation(student: Student): PeerEvaluation {
+  return {
+    week: previousWeek.value,
+    evaluatorId: (userInfoStore.userInfo as Student).id as number,
+    evaluateeId: student.id as number,
+    evaluateeName: `${student.firstName} ${student.lastName}`,
+    ratings: criteria.value.map((criterion) => ({
+      criterionId: criterion.criterionId as number,
+      criterion: criterion.criterion,
+      actualScore: 10 // Default score, can be changed by the user
+    })),
+    publicComment: '',
+    privateComment: ''
+  }
+}
+
+// An unsaved row of a former member whose "Evaluate this student" is not checked: kept on the page, not sent
+function isSkippedOptionalRow(evaluation: PeerEvaluation) {
+  return (
+    evaluation.evaluationId == null &&
+    formerMemberIds.value.has(evaluation.evaluateeId) &&
+    !evaluateFormerMember.value[evaluation.evaluateeId]
+  )
 }
 
 // Submit peer evaluations
 async function submitPeerEvaluations() {
   if (peerEvalutions.value) {
-    const submitPromises = peerEvalutions.value.map(async (evaluation) => {
-      const result: SubmitPeerEvaluationResponse = await submitEvaluation(evaluation)
-      return result.data
-    })
+    const skippedRows = peerEvalutions.value.filter(isSkippedOptionalRow)
+    const submitPromises = peerEvalutions.value
+      .filter((evaluation) => !isSkippedOptionalRow(evaluation))
+      .map(async (evaluation) => {
+        const result: SubmitPeerEvaluationResponse = await submitEvaluation(evaluation)
+        return result.data
+      })
     isLoading.value = true
-    peerEvalutions.value = await Promise.all(submitPromises) // Wait for all promises to resolve
+    // Wait for all promises to resolve; skipped rows stay, so they can still be evaluated later
+    peerEvalutions.value = [...(await Promise.all(submitPromises)), ...skippedRows]
     isNewSubmission = false // Change to update mode
     ElMessage.success('Peer evaluations submitted successfully')
     isLoading.value = false
@@ -244,16 +293,22 @@ async function submitPeerEvaluations() {
   }
 }
 
-// Update peer evaluations
+// Update peer evaluations; an unsaved former member's row is submitted, if checked
 async function updatePeerEvaluations() {
   if (peerEvalutions.value) {
-    const submitPromises = peerEvalutions.value.map(async (evaluation) => {
-      const result: UpdatePeerEvaluationResponse = await updateEvaluation(evaluation)
-      return result.data
-    })
+    const skippedRows = peerEvalutions.value.filter(isSkippedOptionalRow)
+    const savePromises = peerEvalutions.value
+      .filter((evaluation) => !isSkippedOptionalRow(evaluation))
+      .map(async (evaluation) => {
+        const result: UpdatePeerEvaluationResponse | SubmitPeerEvaluationResponse =
+          evaluation.evaluationId == null
+            ? await submitEvaluation(evaluation)
+            : await updateEvaluation(evaluation)
+        return result.data
+      })
 
     isLoading.value = true
-    peerEvalutions.value = await Promise.all(submitPromises) // Wait for all promises to resolve
+    peerEvalutions.value = [...(await Promise.all(savePromises)), ...skippedRows] // Wait for all promises to resolve
     ElMessage.success('Peer evaluations updated successfully')
     isLoading.value = false
   }
