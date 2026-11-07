@@ -15,6 +15,17 @@ const teamList = {
   ]
 }
 
+const savedRow = (evaluationId, evaluateeId, evaluateeName) => ({
+  evaluationId,
+  week: '2023-W32',
+  evaluatorId: 4,
+  evaluateeId,
+  evaluateeName,
+  ratings: [{ criterionId: 1, criterion: 'Quality of work', actualScore: 9 }],
+  publicComment: '',
+  privateComment: ''
+})
+
 describe('Evaluate a deactivated former teammate', () => {
   beforeEach(() => {
     cy.login('j.smith@abc.edu', '123456')
@@ -35,21 +46,37 @@ describe('Evaluate a deactivated former teammate', () => {
         }
       }
     })
-    cy.intercept('GET', '**/evaluations/evaluators/4/week/*', {
-      body: { flag: true, code: 200, message: '', data: [] }
-    })
     cy.intercept('POST', '**/evaluations', (req) => {
       req.reply({
-        body: { flag: true, code: 200, message: 'Add evaluation successfully', data: req.body }
+        body: {
+          flag: true,
+          code: 200,
+          message: 'Add evaluation successfully',
+          data: { ...req.body, evaluationId: 200 + req.body.evaluateeId } // Saved, as the backend returns it
+        }
       })
     }).as('submit')
+    cy.intercept('PUT', '**/evaluations/*', (req) => {
+      req.reply({
+        body: { flag: true, code: 200, message: 'Update evaluation successfully', data: req.body }
+      })
+    }).as('update')
     cy.intercept('POST', '**/evaluations/weeks/*/receipt', {
       body: { flag: true, code: 200, message: '', data: null }
     })
-    cy.visit('/evaluations/submit-evaluations')
   })
 
+  // This week's evaluations John has already saved, as the page loads them
+  function visitWithSavedEvaluations(saved) {
+    cy.intercept('GET', '**/evaluations/evaluators/4/week/*', {
+      body: { flag: true, code: 200, message: '', data: saved }
+    })
+    cy.visit('/evaluations/submit-evaluations')
+  }
+
   it('asks for the team as of the week being evaluated and marks her row optional, unchecked', () => {
+    visitWithSavedEvaluations([])
+
     cy.wait('@teamList')
       .its('request.query.week')
       .should('match', /^\d{4}-W\d{2}$/)
@@ -64,6 +91,8 @@ describe('Evaluate a deactivated former teammate', () => {
   })
 
   it('sends no evaluation of her when her row is left unchecked', () => {
+    visitWithSavedEvaluations([])
+
     cy.contains('button', 'Submit').click()
 
     cy.contains('Peer evaluations submitted successfully')
@@ -74,6 +103,8 @@ describe('Evaluate a deactivated former teammate', () => {
   })
 
   it('sends one evaluation of her when her row is checked', () => {
+    visitWithSavedEvaluations([])
+
     cy.contains('tr', 'Jerry Moon').find('[data-cy=evaluate-optional]').click()
     cy.contains('button', 'Submit').click()
 
@@ -82,5 +113,45 @@ describe('Evaluate a deactivated former teammate', () => {
     cy.get('@submit.all')
       .then((calls) => calls.map((call) => call.request.body.evaluateeId))
       .should('have.members', [4, 5, 6])
+  })
+
+  it('keeps her unchecked row after Submit, so she can still be evaluated with Update', () => {
+    visitWithSavedEvaluations([])
+    cy.contains('button', 'Submit').click()
+    cy.contains('Peer evaluations submitted successfully')
+    cy.contains('tr', 'Jerry Moon').find('[data-cy=evaluate-optional]').click()
+    cy.contains('button', 'Update').click()
+
+    cy.contains('Peer evaluations updated successfully')
+    cy.get('@submit.all')
+      .then((calls) => calls.map((call) => call.request.body.evaluateeId))
+      .should('have.members', [4, 5, 6])
+  })
+
+  it('offers her row in update mode when the evaluator has not evaluated her yet', () => {
+    visitWithSavedEvaluations([savedRow(101, 4, 'John Smith'), savedRow(102, 5, 'Eric Hudson')])
+    cy.contains('tr', 'Jerry Moon').find('[data-cy=evaluate-optional]').click()
+    cy.contains('button', 'Update').click()
+
+    cy.contains('Peer evaluations updated successfully')
+    cy.get('@submit.all')
+      .then((calls) => calls.map((call) => call.request.body.evaluateeId))
+      .should('have.members', [6])
+    cy.get('@update.all')
+      .then((calls) => calls.map((call) => call.request.body.evaluationId))
+      .should('have.members', [101, 102])
+  })
+
+  it('shows no skip checkbox on a saved evaluation of her', () => {
+    visitWithSavedEvaluations([
+      savedRow(101, 4, 'John Smith'),
+      savedRow(102, 5, 'Eric Hudson'),
+      savedRow(103, 6, 'Jerry Moon')
+    ])
+
+    cy.contains('tr', 'Jerry Moon')
+      .find('[data-cy=optional-evaluatee]')
+      .should('contain', 'deactivated, optional')
+    cy.contains('tr', 'Jerry Moon').find('[data-cy=evaluate-optional]').should('not.exist')
   })
 })
