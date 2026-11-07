@@ -262,7 +262,7 @@ public class EvaluationService {
         // A deactivated student appears in no peer evaluation report after the week of her deactivation
         // (BR-student-lifecycle), so her own report stops there too
         if (!student.isEnabled() && student.getDeactivatedWeek() != null) {
-            weeks = weeks.stream().filter(week -> week.compareTo(student.getDeactivatedWeek()) <= 0).collect(Collectors.toList());
+            weeks = weeks.stream().filter(student::isOnOrBeforeDeactivation).collect(Collectors.toList());
         }
 
         List<PeerEvaluationAverage> peerEvaluationAverages = weeks.stream().map(week -> getPeerEvaluationAverage(week, student)).collect(Collectors.toList());

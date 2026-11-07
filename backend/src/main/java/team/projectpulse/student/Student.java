@@ -72,7 +72,15 @@ public class Student extends PeerEvaluationUser {
      * (BR-student-lifecycle). True for the week of her deactivation and every earlier week.
      */
     public boolean isFormerMemberInWeek(String week) {
-        return this.formerTeam != null && this.deactivatedWeek != null && week.compareTo(this.deactivatedWeek) <= 0;
+        return this.formerTeam != null && isOnOrBeforeDeactivation(week);
+    }
+
+    /**
+     * Whether she was deactivated and the given week is the week of her deactivation or an earlier one. Week keys sort
+     * lexically, so they compare as strings. The one statement of that boundary (BR-student-lifecycle).
+     */
+    public boolean isOnOrBeforeDeactivation(String week) {
+        return this.deactivatedWeek != null && week.compareTo(this.deactivatedWeek) <= 0;
     }
 
     /**
@@ -81,7 +89,7 @@ public class Student extends PeerEvaluationUser {
      * and reassigned therefore still shows under her first team for the weeks before.
      */
     public Team teamInWeek(String week) {
-        if (this.deactivatedWeek != null && week.compareTo(this.deactivatedWeek) <= 0) {
+        if (isOnOrBeforeDeactivation(week)) {
             return this.formerTeam;
         }
         return this.team;
